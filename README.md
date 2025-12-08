@@ -13,6 +13,7 @@ This project demonstrates how to deploy a fully managed serverless container wor
 * Fully automated provisioning & teardown via **Terraform**
 
 🏗 Architecture
+
 <img width="766" height="589" alt="image" src="https://github.com/user-attachments/assets/a3104f7c-72f6-4145-a5a0-5dbb038a29fb" />
 
 Monitoring & Security:
