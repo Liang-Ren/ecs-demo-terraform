@@ -11,7 +11,7 @@ provider "aws" {
   region = var.region
 }
 
-# ------------ 基础网络：用默认 VPC 和子网，方便实验 ----------
+# ------------ Network: default VPC & Subnets ----------
 data "aws_vpc" "default" {
   default = true
 }
@@ -23,13 +23,13 @@ data "aws_subnets" "default" {
   }
 }
 
-# ------------ CloudWatch 日志组 ----------
+# ------------ CloudWatch log group ----------
 resource "aws_cloudwatch_log_group" "ecs_demo" {
   name              = "/ecs/ecs-demo"
   retention_in_days = 14
 }
 
-# ------------ ECS Cluster（港口群）+ 开启 Container Insights ----------
+# ------------ ECS Cluster + enable Container Insights ----------
 resource "aws_ecs_cluster" "ecs_demo" {
   name = "ecs-demo-cluster"
 
@@ -39,7 +39,7 @@ resource "aws_ecs_cluster" "ecs_demo" {
   }
 }
 
-# ------------ IAM Role：Task 执行角色（拉镜像 & 写日志） ----------
+# ------------ IAM Role: Task assumes the role ----------
 data "aws_iam_policy_document" "ecs_task_assume" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -55,13 +55,13 @@ resource "aws_iam_role" "ecs_task_execution" {
   assume_role_policy = data.aws_iam_policy_document.ecs_task_assume.json
 }
 
-# 附加 AWS 托管策略：拉 ECR + 写 CloudWatch Logs
+# AWS managed policy: ECR + CloudWatch Logs
 resource "aws_iam_role_policy_attachment" "ecs_task_execution_attach" {
   role       = aws_iam_role.ecs_task_execution.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# ------------ ALB + Target Group + Listener（对外入口） ----------
+# ------------ ALB + Target Group + Listener ----------
 resource "aws_security_group" "alb_sg" {
   name        = "ecs-demo-alb-sg"
   description = "Allow HTTP from internet"
@@ -120,7 +120,7 @@ resource "aws_lb_listener" "ecs_demo_http" {
   }
 }
 
-# ------------ ECS Service 的 SG（任务本身） ----------
+# ------------ ECS Service SG ----------
 resource "aws_security_group" "ecs_tasks_sg" {
   name        = "ecs-demo-tasks-sg"
   description = "Allow ALB to reach ECS tasks"
@@ -141,7 +141,7 @@ resource "aws_security_group" "ecs_tasks_sg" {
   }
 }
 
-# ------------ ECS Task Definition（船的设计图） ----------
+# ------------ ECS Task Definition ----------
 resource "aws_ecs_task_definition" "ecs_demo" {
   family                   = "ecs-demo-task"
   cpu                      = "256"
@@ -174,7 +174,7 @@ resource "aws_ecs_task_definition" "ecs_demo" {
   ])
 }
 
-# ------------ ECS Service（港务局，调度 N 条船） ----------
+# ------------ ECS Service ----------
 resource "aws_ecs_service" "ecs_demo" {
   name            = "ecs-demo-service"
   cluster         = aws_ecs_cluster.ecs_demo.id
@@ -195,8 +195,116 @@ resource "aws_ecs_service" "ecs_demo" {
   }
 
   lifecycle {
-    ignore_changes = [desired_count] # 手动调节时不想频繁刷新
+    ignore_changes = [desired_count]
   }
 
   depends_on = [aws_lb_listener.ecs_demo_http]
+}
+
+resource "aws_cloudwatch_log_metric_filter" "ecs_errors" {
+  name           = "ecs-demo-error-count"
+  log_group_name = aws_cloudwatch_log_group.ecs_demo.name
+
+  pattern = "\"ERROR\""
+
+  metric_transformation {
+    name      = "EcsDemoErrorCount"
+    namespace = "ECS/DemoApp"
+    value     = "1"
+  }
+}
+
+resource "aws_sns_topic" "security_alerts" {
+  name = "ecs-security-alerts"
+}
+
+resource "aws_cloudwatch_metric_alarm" "ecs_error_alarm" {
+  alarm_name          = "ECS-Demo-High-Error-Rate"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = aws_cloudwatch_log_metric_filter.ecs_errors.metric_transformation[0].name
+  namespace           = aws_cloudwatch_log_metric_filter.ecs_errors.metric_transformation[0].namespace
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 5
+
+  alarm_description = "More than 5 ERROR logs in 1 minute in ECS demo app"
+  alarm_actions     = [aws_sns_topic.security_alerts.arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "ecs_cpu_high" {
+  alarm_name          = "ECS-Demo-CPU-High"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/ECS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 80
+
+  alarm_description = "ECS demo service CPU > 80% for 2 min"
+  alarm_actions     = [aws_sns_topic.security_alerts.arn]
+
+  dimensions = {
+    ClusterName = aws_ecs_cluster.ecs_demo.name
+    ServiceName = aws_ecs_service.ecs_demo.name
+  }
+}
+
+resource "aws_guardduty_detector" "main" {
+  enable = true
+}
+
+resource "aws_cloudwatch_event_rule" "guardduty_high_severity" {
+  name        = "guardduty-high-severity"
+  description = "Forward high severity GuardDuty findings to SNS"
+  event_pattern = jsonencode({
+    "source"      : ["aws.guardduty"],
+    "detail-type" : ["GuardDuty Finding"],
+    "detail" : {
+      "severity" : [
+        { "numeric" : [">=", 7] }
+      ]
+    }
+  })
+}
+
+resource "aws_cloudwatch_event_target" "guardduty_to_sns" {
+  rule      = aws_cloudwatch_event_rule.guardduty_high_severity.name
+  target_id = "send-to-sns"
+  arn       = aws_sns_topic.security_alerts.arn
+}
+
+# EventBridge  to SNS 
+resource "aws_iam_role" "events_to_sns_role" {
+  name = "events-to-sns-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { Service = "events.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "events_to_sns_policy" {
+  role = aws_iam_role.events_to_sns_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "sns:Publish"
+      Resource = aws_sns_topic.security_alerts.arn
+    }]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "guardduty_to_sns_with_role" {
+  rule      = aws_cloudwatch_event_rule.guardduty_high_severity.name
+  target_id = "send-to-sns-with-role"
+  arn       = aws_sns_topic.security_alerts.arn
+  role_arn  = aws_iam_role.events_to_sns_role.arn
 }
