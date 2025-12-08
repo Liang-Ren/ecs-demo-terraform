@@ -11,32 +11,10 @@ This project demonstrates how to deploy a fully managed serverless container wor
 * **GuardDuty enabled** for threat detection
 * **Security Hub enabled** with foundational best practices
 * Fully automated provisioning & teardown via **Terraform**
- 🏗 Architecture
-                      +-----------------------------+
-                      |        GitHub Repo          |
-                      |  ecs-demo-terraform (TF)    |
-                      +--------------+--------------+
-                                     |
-                                     v
-                         terraform apply
-                                     |
-        -----------------------------------------------------------------
-                                     |
-                                     v
-+-----------------------+       +-----------------------------------------+
-|      Amazon ECR       |       |           Amazon ECS Cluster            |
-| (ecs-demo:latest img) | ----> |  Fargate Tasks (2+) running container   |
-+-----------------------+       |  Task Definition (CPU/MEM/Ports/Logs)   |
-                                +---------------------+-------------------+
-                                                      |
-+------------------------------+                      v
-|       Application LB         | <-------------- Target Group (8080)
-|  http://<alb-dns-name>       |
-|  distributes traffic          |
-+---------------+--------------+
-                |
-                v
-          End-user Browser
+
+🏗 Architecture
+<img width="766" height="589" alt="image" src="https://github.com/user-attachments/assets/a3104f7c-72f6-4145-a5a0-5dbb038a29fb" />
+
 Monitoring & Security:
 ECS Logs --> CloudWatch Log Group --> Metric Filter --> CW Alarm --> SNS Topic
 ECS Metrics --> CloudWatch (Container Insights)
