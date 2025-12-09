@@ -80,10 +80,15 @@ Security Hub <-- aggregated security findings
 
 If you already have a working container image, skip to step 2.
 
-Example Node.js app:
+Download my ./web_app/*:
+```bash
+docker build -t ecs-demo:latest .
+docker run --rm -p 8080:8080 ecs-demo:latest
+curl http://localhost:8080
+```
 
 ```
-Hello from ECS demo! 🚢
+Hello Liang, from ECS demo! 
 ```
 
 ---
