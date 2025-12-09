@@ -80,7 +80,7 @@ Security Hub <-- aggregated security findings
 
 If you already have a working container image, skip to step 2.
 
-Download my ./web_app/*:
+Download my ./webapp/*:
 ```bash
 docker build -t ecs-demo:latest .
 docker run --rm -p 8080:8080 ecs-demo:latest
