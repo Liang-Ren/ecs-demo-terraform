@@ -86,7 +86,7 @@ docker build -t ecs-demo:latest .
 docker run --rm -p 8080:8080 ecs-demo:latest
 curl http://localhost:8080
 ```
-
+Web page says: 
 ```
 Hello Liang, from ECS demo! 
 ```
